@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.streamlit/
+.env
+
+# Node/Vite
+node_modules/
+dist/
+.vite/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

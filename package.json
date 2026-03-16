@@ -1,0 +1,22 @@
+{
+  "name": "ai-chat-assistant-cloudrun",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"node server/index.js\"",
+    "build": "vite build",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "openai": "^4.89.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "concurrently": "^9.1.2",
+    "vite": "^6.1.0",
+    "vue": "^3.5.13"
+  }
+}
+
