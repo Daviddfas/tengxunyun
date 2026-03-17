@@ -17,8 +17,8 @@ COPY --from=build /app/server ./server
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=80
+EXPOSE 80
 
 CMD ["node", "server/index.js"]
 

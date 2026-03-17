@@ -2,7 +2,9 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import CheckIn from "./components/CheckIn.vue";
 import MoodTree from "./components/MoodTree.vue";
+import EmotionRadar from "./components/EmotionRadar.vue";
 import GroundingDrawer from "./components/GroundingDrawer.vue";
+import CompanionRitual from "./components/CompanionRitual.vue";
 import { loadState, saveState } from "./lib/storage.js";
 
 const persisted = loadState();
@@ -27,10 +29,15 @@ const loading = ref(false);
 const errorText = ref("");
 const crisisMode = ref(false);
 const showGrounding = ref(false);
-const activeSide = ref("tree"); // tree | journal | reflect
+const activeSide = ref("tree"); // tree | journal | reflect | companion
 const listEl = ref(null);
+const inputEl = ref(null);
+const composing = ref(false);
 
-const canSend = computed(() => input.value.trim().length > 0 && !loading.value);
+const canSend = computed(() => {
+  const live = inputEl.value?.value ?? input.value;
+  return String(live ?? "").trim().length > 0 && !loading.value;
+});
 
 async function scrollToBottom() {
   await nextTick();
@@ -100,12 +107,24 @@ async function logout() {
 }
 
 async function send(overrideText) {
-  const text = (overrideText ?? input.value).trim();
+  if (composing.value) {
+    try {
+      inputEl.value?.blur?.();
+    } catch {
+      // ignore
+    }
+    composing.value = false;
+  }
+  const raw =
+    typeof overrideText === "string"
+      ? overrideText
+      : inputEl.value?.value ?? input.value;
+  const text = String(raw ?? "").trim();
   if (!text || loading.value) return;
   errorText.value = "";
   crisisMode.value = false;
   messages.value.push({ role: "user", content: text });
-  if (!overrideText) input.value = "";
+  if (typeof overrideText !== "string") input.value = "";
   loading.value = true;
   await scrollToBottom();
 
@@ -123,7 +142,7 @@ async function send(overrideText) {
     }
     const data = await res.json();
     if (data?.crisis) crisisMode.value = true;
-    const replyText = data.reply ?? "（空响应）";
+    const replyText = data.reply ?? "我在呢，慢慢说就好。";
     messages.value.push({ role: "assistant", content: replyText });
 
     const v = Number.isFinite(Number(data.valence)) ? Number(data.valence) : 3;
@@ -248,12 +267,14 @@ onMounted(() => {
         <button class="navBtn" :data-on="activeSide === 'tree'" @click="activeSide = 'tree'">情绪树</button>
         <button class="navBtn" :data-on="activeSide === 'journal'" @click="activeSide = 'journal'">树洞日记</button>
         <button class="navBtn" :data-on="activeSide === 'reflect'" @click="activeSide = 'reflect'">回声卡片</button>
+        <button class="navBtn" :data-on="activeSide === 'companion'" @click="activeSide = 'companion'">陪伴小馆</button>
       </nav>
 
       <div class="sideBody">
         <CheckIn @checkin="addCheckIn" />
         <div v-if="activeSide === 'tree'" class="stack">
           <MoodTree :checkins="checkins" />
+          <EmotionRadar :checkins="checkins" />
         </div>
 
         <div v-else-if="activeSide === 'journal'" class="stack">
@@ -270,13 +291,17 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-else class="stack">
+        <div v-else-if="activeSide === 'reflect'" class="stack">
           <div class="box">
             <div class="title">树洞回声卡片</div>
             <div class="sub">把最近的对话压成一张卡：经历 / 需要 / 下一小步 / 温柔一句。</div>
             <button class="primary wide" @click="makeReflectionCard" :disabled="loading">生成一张</button>
             <div class="small">提示：生成会写入对话区，方便复制保存。</div>
           </div>
+        </div>
+
+        <div v-else class="stack">
+          <CompanionRitual :prefs="prefs" :messages="messages" />
         </div>
 
         <div class="foot">
@@ -327,15 +352,25 @@ onMounted(() => {
 
           <div class="bar">
             <textarea
+              ref="inputEl"
               v-model="input"
               class="input"
               rows="2"
               placeholder="把想说的写下来…（Shift+Enter 换行，Enter 发送）"
+              @compositionstart="composing = true"
+              @compositionend="composing = false"
               @keydown.enter.exact.prevent="send()"
               @keydown.enter.shift.exact.stop
             />
             <div class="btnCol">
-              <button class="send" :disabled="!canSend" @click="send">
+              <button
+                class="send"
+                type="button"
+                :disabled="!canSend"
+                @pointerup.prevent="send()"
+                @touchend.prevent="send()"
+                @click.prevent="send()"
+              >
                 {{ loading ? "对方在听…" : "倾诉" }}
               </button>
               <button class="ghost smallBtn" @click="addJournalFromInput">存为日记</button>
@@ -659,6 +694,28 @@ onMounted(() => {
 }
 .smallBtn {
   padding: 10px 12px;
+}
+
+.voiceBar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 8px 0 10px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: rgba(44, 36, 25, 0.04);
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+}
+.chip input {
+  accent-color: var(--accent);
 }
 
 .me {

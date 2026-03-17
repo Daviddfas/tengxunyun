@@ -7,7 +7,7 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
-const PORT = Number.parseInt(process.env.PORT || "8080", 10);
+const PORT = Number.parseInt(process.env.PORT || "80", 10);
 
 function getClient() {
   // 支持 OPENAI_API_KEY 或 DEEPSEEK_API_KEY（CloudRun 常用命名）
@@ -178,8 +178,8 @@ function systemPrompt() {
 app.post("/api/chat", async (req, res) => {
   const client = getClient();
   if (!client) return res.status(400).send("Missing API key on server. Set OPENAI_API_KEY or DEEPSEEK_API_KEY in environment.");
-
   const model = (process.env.OPENAI_MODEL || "deepseek-chat").trim();
+
   const bodyMessages = Array.isArray(req.body?.messages) ? req.body.messages : null;
   if (!bodyMessages || bodyMessages.length === 0) {
     return res.status(400).send("Invalid payload: { messages: [...] } required.");
@@ -277,7 +277,6 @@ app.post("/api/chat", async (req, res) => {
 app.post("/api/reflect", async (req, res) => {
   const client = getClient();
   if (!client) return res.status(400).send("Missing API key on server. Set OPENAI_API_KEY or DEEPSEEK_API_KEY in environment.");
-
   const model = (process.env.OPENAI_MODEL || "deepseek-chat").trim();
   const messages = Array.isArray(req.body?.messages) ? req.body.messages : null;
   if (!messages || messages.length === 0) {

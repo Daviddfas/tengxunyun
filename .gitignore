@@ -1,15 +1,10 @@
-.venv/
-__pycache__/
-.streamlit/
+﻿node_modules/
+dist/
+.DS_Store
 .env
-
-# Node/Vite
+cloudbaserc.json
+.venv/
 node_modules/
 dist/
-.vite/
-
-# OS/editor
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+.env
+cloudbaserc.json

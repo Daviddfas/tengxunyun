@@ -1,51 +1,71 @@
-# AI 对话助手（本地 Web 版）
+# AI 心灵树洞（Vue + Express + Docker）
 
-这是一个最小可用的 AI 对话助手项目，提供：
+一个“像朋友聊天”的中文对话网站（单机部署版）：
 
-- Streamlit Web 对话界面（支持多轮对话、历史记录）
-- 支持 OpenAI 兼容接口（可配置 `base_url`，适配很多第三方中转/自建）
-- 未配置 Key 时自动使用离线回退（简单规则回复），方便先把项目跑起来
+- **前端**：Vue 3 + Vite
+- **后端**：Node.js + Express（同域名提供 `/api/*`）
+- **模型**：OpenAI 兼容接口（默认按 DeepSeek 配置）
+- **限制**：AI 单条回复 ≤ 50 个中文字符
+- **账号**：注册 / 登录 / 退出（演示版：账号与聊天记录存在服务内存中）
+- **语音**：可选语音输入（浏览器 Web Speech API）+ 语音朗读（后端在线 TTS）
 
-## 1) 环境准备
+## 功能
 
-建议使用 Python 3.10+。
+- **普通朋友式回复**：口语化，不“文艺腔”
+- **情绪树**：每次回复都会记录一片叶子
+- **快捷按钮**：命名情绪 / 生成回声卡等
+- **话题限制**：暴力/色情/恐怖等敏感话题会被拒聊
+- **语音输入**：点“语音输入”把说的话转成文字（可选“说完自动发”）
+- **语音输出**：勾选“朗读回复”，由后端在线 TTS 合成并播放（豆包/火山引擎）
 
-```bash
-cd ai-chat-assistant
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-## 2) 配置（可选）
-
-复制环境变量示例文件并填写：
-
-```bash
-copy .env.example .env
-```
-
-可配置项：
-
-- `OPENAI_API_KEY`: 你的 API Key（必填才会走在线大模型）
-- `OPENAI_BASE_URL`: OpenAI 兼容接口地址（默认 `https://api.openai.com/v1`）
-- `OPENAI_MODEL`: 模型名（默认 `gpt-4o-mini`，也可换成你的提供方支持的模型）
-
-## 3) 启动
+## 本地开发
 
 ```bash
-streamlit run app.py
+cd cloudrun
+npm install
+npm run dev
 ```
 
-启动后浏览器会打开页面，在输入框里聊天即可。
+## 环境变量（后端）
 
-## 4) 常见问题
+后端支持以下环境变量：
 
-### Q: 我没 Key，能用吗？
+- `OPENAI_API_KEY` 或 `DEEPSEEK_API_KEY`：至少提供一个
+- `OPENAI_BASE_URL`：默认 `https://api.deepseek.com/v1`
+- `OPENAI_MODEL`：默认 `deepseek-chat`
+- `PORT`：默认 `8080`
+- `DOUBAO_TTS_APPID`：火山引擎 AppID
+- `DOUBAO_TTS_TOKEN`：火山引擎 Token / API Key
+- `DOUBAO_TTS_CLUSTER`：可选，默认 `volcano_tts`
+- `DOUBAO_TTS_VOICE_TYPE`：可选，默认 `BV001_streaming`
 
-能。未配置 `OPENAI_API_KEY` 时会进入离线回退模式（用于验证 UI / 会话逻辑）。
+## Docker 部署（服务器）
 
-### Q: 我想接入国产/第三方 OpenAI 兼容接口？
+在服务器（例如 OpenCloudOS 9）：
 
-把 `.env` 里的 `OPENAI_BASE_URL` 改成你的提供方地址，并设置 `OPENAI_API_KEY` 与 `OPENAI_MODEL` 即可。
+```bash
+cd /opt/cloudrun
+docker build -t ai-chat-assistant:latest .
+
+docker rm -f ai-chat-assistant 2>/dev/null || true
+docker run -d \
+  --name ai-chat-assistant \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -e DEEPSEEK_API_KEY="你的key" \
+  -e OPENAI_BASE_URL="https://api.deepseek.com/v1" \
+  -e OPENAI_MODEL="deepseek-chat" \
+  ai-chat-assistant:latest
+```
+
+健康检查：
+
+```bash
+curl -s http://127.0.0.1:8080/api/health
+```
+
+## 语音功能的浏览器要求
+
+- **语音输入**：Chrome/Edge 通常可用（需要麦克风权限）；Safari/部分浏览器可能不支持
+- **语音朗读**：由后端生成音频并播放，浏览器只负责播放
 
