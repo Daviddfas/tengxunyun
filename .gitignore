@@ -1,11 +1,21 @@
-﻿node_modules/
-dist/
-.DS_Store
-.env
-cloudbaserc.json
-.venv/
+## Node/Vite
 node_modules/
 dist/
+.vite/
+
+## Env/config
 .env
 cloudbaserc.json
+
+## Python
 .venv/
+__pycache__/
+
+## OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+## Artifacts
+cloudrun.tar.gz
