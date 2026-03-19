@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import CheckIn from "./components/CheckIn.vue";
 import MoodTree from "./components/MoodTree.vue";
 import EmotionRadar from "./components/EmotionRadar.vue";
@@ -23,6 +23,246 @@ const loginPassword = ref("");
 const loginMode = ref("login"); // login | register
 const loginLoading = ref(false);
 const loginError = ref("");
+const loginCardFade = ref(false);
+const welcomeOn = ref(false);
+const canvasEl = ref(null);
+let stopLoginAnim = null;
+
+async function startLoginAnim() {
+  // 可重复启动：先停止旧动效，再重建
+  stopLoginAnim?.();
+  stopLoginAnim = null;
+
+  if (!canvasEl.value || user.value) return;
+
+  // 登录页：Three.js 蒲公英动效（仅未登录时加载）
+  const THREE = await import("three");
+  const container = canvasEl.value;
+  container.innerHTML = "";
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2("#F4F1EB", 0.012);
+
+  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 0, 85);
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  container.appendChild(renderer.domElement);
+
+  const createFluffTexture = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    const cx = 64,
+      cy = 64;
+
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 64);
+    grad.addColorStop(0, "rgba(255, 255, 255, 1)");
+    grad.addColorStop(0.3, "rgba(255, 255, 255, 0.6)");
+    grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#8C7D6E";
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 40; i++) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      const angle = Math.random() * Math.PI * 2;
+      const r = 25 + Math.random() * 35;
+      ctx.quadraticCurveTo(
+        cx + Math.cos(angle + 0.3) * r * 0.5,
+        cy + Math.sin(angle + 0.3) * r * 0.5,
+        cx + Math.cos(angle) * r,
+        cy + Math.sin(angle) * r,
+      );
+      ctx.stroke();
+    }
+    return new THREE.CanvasTexture(canvas);
+  };
+
+  const seedsCount = window.innerWidth < 480 ? 650 : 1000;
+  const dandelionGroup = new THREE.Group();
+  const velocities = [];
+
+  const fluffGeo = new THREE.BufferGeometry();
+  const fluffPos = new Float32Array(seedsCount * 3);
+
+  const stemGeo = new THREE.BufferGeometry();
+  const stemPos = new Float32Array(seedsCount * 6);
+
+  const radius = 20;
+  for (let i = 0; i < seedsCount; i++) {
+    const phi = Math.acos(1 - (2 * (i + 0.5)) / seedsCount);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
+    const r = radius + (Math.random() * 3 - 1.5);
+
+    const x = r * Math.sin(phi) * Math.cos(theta);
+    const y = r * Math.sin(phi) * Math.sin(theta);
+    const z = r * Math.cos(phi);
+
+    fluffPos[i * 3] = x;
+    fluffPos[i * 3 + 1] = y;
+    fluffPos[i * 3 + 2] = z;
+
+    const dir = new THREE.Vector3(x, y, z).normalize();
+    const stemLength = r * 0.9;
+    const startX = x - dir.x * stemLength;
+    const startY = y - dir.y * stemLength;
+    const startZ = z - dir.z * stemLength;
+
+    stemPos[i * 6] = startX;
+    stemPos[i * 6 + 1] = startY;
+    stemPos[i * 6 + 2] = startZ;
+    stemPos[i * 6 + 3] = x;
+    stemPos[i * 6 + 4] = y;
+    stemPos[i * 6 + 5] = z;
+
+    velocities.push({
+      x: dir.x * 0.2 + 0.2 + Math.random() * 0.3,
+      y: dir.y * 0.2 + 0.2 + Math.random() * 0.3,
+      z: dir.z * 0.2 + (Math.random() - 0.5) * 0.3,
+    });
+  }
+
+  fluffGeo.setAttribute("position", new THREE.BufferAttribute(fluffPos, 3));
+  stemGeo.setAttribute("position", new THREE.BufferAttribute(stemPos, 3));
+
+  const fluffMaterial = new THREE.PointsMaterial({
+    size: 9,
+    map: createFluffTexture(),
+    transparent: true,
+    opacity: 1,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+  });
+  const stemMaterial = new THREE.LineBasicMaterial({
+    color: 0x968a7d,
+    transparent: true,
+    opacity: 0.45,
+  });
+
+  const fluffs = new THREE.Points(fluffGeo, fluffMaterial);
+  const stems = new THREE.LineSegments(stemGeo, stemMaterial);
+  const coreGeo = new THREE.SphereGeometry(2, 16, 16);
+  const coreMat = new THREE.MeshBasicMaterial({ color: 0x7a7065 });
+  const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+
+  dandelionGroup.add(fluffs);
+  dandelionGroup.add(stems);
+  dandelionGroup.add(coreMesh);
+  dandelionGroup.position.x = window.innerWidth > 900 ? -22 : 0;
+  scene.add(dandelionGroup);
+
+  let targetRotX = 0;
+  let targetRotY = 0;
+  let isBlowing = false;
+
+  const onMouseMove = (event) => {
+    if (isBlowing) return;
+    const mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+    const mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+    targetRotY = mouseX * 0.25;
+    targetRotX = mouseY * 0.25;
+  };
+
+  const onResize = () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    if (!isBlowing) dandelionGroup.position.x = window.innerWidth > 900 ? -22 : 0;
+  };
+
+  document.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("resize", onResize);
+
+  let animationFrameId = 0;
+  const animate = () => {
+    animationFrameId = requestAnimationFrame(animate);
+    const time = Date.now() * 0.001;
+
+    if (!isBlowing) {
+      dandelionGroup.rotation.y += (targetRotY + time * 0.08 - dandelionGroup.rotation.y) * 0.05;
+      dandelionGroup.rotation.x += (targetRotX - dandelionGroup.rotation.x) * 0.05;
+      coreMesh.scale.setScalar(1 + Math.sin(time * 2) * 0.03);
+    } else {
+      const fPos = fluffGeo.attributes.position.array;
+      const sPos = stemGeo.attributes.position.array;
+      for (let i = 0; i < seedsCount; i++) {
+        const v = velocities[i];
+        v.x += Math.sin(time * 4 + fPos[i * 3 + 1] * 0.05) * 0.012;
+        v.y += Math.cos(time * 4 + fPos[i * 3] * 0.05) * 0.012;
+
+        fPos[i * 3] += v.x;
+        fPos[i * 3 + 1] += v.y;
+        fPos[i * 3 + 2] += v.z;
+
+        sPos[i * 6] += v.x;
+        sPos[i * 6 + 1] += v.y;
+        sPos[i * 6 + 2] += v.z;
+        sPos[i * 6 + 3] += v.x;
+        sPos[i * 6 + 4] += v.y;
+        sPos[i * 6 + 5] += v.z;
+      }
+      fluffGeo.attributes.position.needsUpdate = true;
+      stemGeo.attributes.position.needsUpdate = true;
+      coreMesh.scale.multiplyScalar(0.995);
+      if (fluffMaterial.opacity > 0) {
+        fluffMaterial.opacity = Math.max(0, fluffMaterial.opacity - 0.005);
+        stemMaterial.opacity = Math.max(0, stemMaterial.opacity - 0.003);
+      }
+    }
+
+    renderer.render(scene, camera);
+  };
+  animate();
+
+  const blow = () => {
+    if (isBlowing) return;
+    dandelionGroup.updateMatrixWorld();
+    fluffGeo.applyMatrix4(dandelionGroup.matrixWorld);
+    stemGeo.applyMatrix4(dandelionGroup.matrixWorld);
+    dandelionGroup.position.set(0, 0, 0);
+    dandelionGroup.rotation.set(0, 0, 0);
+    isBlowing = true;
+  };
+
+  const unwatch = watch(
+    () => loginLoading.value,
+    (v) => {
+      if (v) blow();
+    },
+    { immediate: true },
+  );
+
+  stopLoginAnim = () => {
+    unwatch();
+    cancelAnimationFrame(animationFrameId);
+    document.removeEventListener("mousemove", onMouseMove);
+    window.removeEventListener("resize", onResize);
+    try {
+      renderer.dispose();
+    } catch {}
+    try {
+      fluffMaterial?.map?.dispose?.();
+    } catch {}
+    try {
+      fluffMaterial?.dispose?.();
+    } catch {}
+    try {
+      stemMaterial?.dispose?.();
+    } catch {}
+    container.innerHTML = "";
+  };
+}
 
 const input = ref("");
 const loading = ref(false);
@@ -86,9 +326,16 @@ async function login() {
       throw new Error(t || `HTTP ${res.status}`);
     }
     const data = await res.json();
+    // 留出时间给“吹散 + 文案”转场，避免瞬间跳到聊天页
+    welcomeOn.value = true;
+    await new Promise((r) => setTimeout(r, 3600));
     user.value = { username: data.username || name };
   } catch (e) {
     loginError.value = e?.message ?? String(e);
+    loginCardFade.value = false;
+    welcomeOn.value = false;
+    // 登录失败：重置蒲公英场景，允许再次触发动画/字幕
+    startLoginAnim().catch(() => {});
   } finally {
     loginLoading.value = false;
   }
@@ -212,41 +459,69 @@ async function makeReflectionCard() {
 onMounted(() => {
   scrollToBottom();
   fetchMe();
+  startLoginAnim().catch(() => {});
+});
+
+onBeforeUnmount(() => {
+  stopLoginAnim?.();
 });
 </script>
 
 <template>
   <div v-if="!user" class="loginPage">
-    <div class="loginCard">
-      <div class="loginTitle">AI 心灵树洞</div>
-      <div class="loginSub">先注册 / 登录账号，再开始聊天。</div>
+    <div ref="canvasEl" class="canvasContainer" />
 
-      <div class="loginTabs">
-        <button class="tab" :data-on="loginMode === 'login'" @click="loginMode = 'login'">登录</button>
-        <button class="tab" :data-on="loginMode === 'register'" @click="loginMode = 'register'">注册</button>
+    <div class="uiContainer">
+      <div class="welcomeMsg" :data-on="welcomeOn">深呼吸...<br />烦恼正随风消散</div>
+
+      <div class="loginCardNew" :class="{ fadeOut: loginCardFade || loginLoading }">
+        <div class="headerNew">
+          <h1 class="titleNew">聆心小开</h1>
+          <p class="subtitleNew">像吹散蒲公英一样，<br />把沉重的思绪交给风，只留下一片轻盈。</p>
+        </div>
+
+        <div class="authToggle" :class="{ registerMode: loginMode === 'register' }">
+          <div class="toggleSlider"></div>
+          <button class="toggleBtn" :class="{ active: loginMode === 'login' }" type="button" @click="loginMode = 'login'">
+            登录
+          </button>
+          <button
+            class="toggleBtn"
+            :class="{ active: loginMode === 'register' }"
+            type="button"
+            @click="loginMode = 'register'"
+          >
+            注册
+          </button>
+        </div>
+
+        <form
+          class="loginFormNew"
+          @submit.prevent="
+            () => {
+              loginCardFade = true;
+              welcomeOn = true;
+              login();
+            }
+          "
+        >
+          <div class="inputGroup">
+            <label>你的称呼</label>
+            <input v-model="loginName" type="text" placeholder="例如：旅人 / 星期八" required autocomplete="off" />
+          </div>
+          <div class="inputGroup">
+            <label>你的密码</label>
+            <input v-model="loginPassword" type="password" placeholder="心底的密码" required />
+          </div>
+
+          <button class="submitBtn" type="submit" :disabled="loginLoading">
+            {{ loginLoading ? "正在吹散…" : loginMode === "login" ? "登录并吹散" : "注册并吹散" }}
+          </button>
+
+          <div v-if="loginError" class="loginErrorNew">{{ loginError }}</div>
+          <div class="loginHintNew">仅演示用，账号数据只存在服务器内存中。</div>
+        </form>
       </div>
-
-      <div class="loginFields">
-        <input
-          v-model="loginName"
-          class="loginInput big"
-          placeholder="账号（任意昵称，建议英文或拼音）"
-        />
-        <input
-          v-model="loginPassword"
-          class="loginInput big"
-          type="password"
-          placeholder="密码（至少 6 位）"
-          @keydown.enter.prevent="login"
-        />
-      </div>
-
-      <button class="loginBtn" :disabled="loginLoading" @click="login">
-        {{ loginLoading ? (loginMode === 'login' ? "登录中…" : "注册中…") : (loginMode === 'login' ? "登录" : "注册并登录") }}
-      </button>
-
-      <div v-if="loginError" class="loginError">{{ loginError }}</div>
-      <div class="loginHint">仅演示用，账号数据只存在服务器内存中。</div>
     </div>
   </div>
 
@@ -731,86 +1006,226 @@ onMounted(() => {
 }
 
 .loginPage {
+  position: relative;
   min-height: 100vh;
+  overflow: hidden;
+  background: linear-gradient(135deg, #ebe6df 0%, #f4f1eb 100%);
+}
+
+.canvasContainer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.canvasContainer :deep(canvas) {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+.uiContainer {
+  position: relative;
+  z-index: 10;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #fefcf8;
-}
-.loginCard {
-  width: 360px;
-  max-width: 92vw;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: #fffdf8;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
-  padding: 22px 20px 18px;
-}
-.loginTitle {
-  font-size: 20px;
-  font-weight: 900;
-  color: var(--text);
-}
-.loginSub {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.loginTabs {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
-.tab {
-  flex: 1;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(44, 36, 25, 0.04);
-  padding: 8px 10px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.tab[data-on="true"] {
-  border-color: var(--accent);
-  background: rgba(201, 125, 74, 0.12);
-}
-.loginFields {
-  margin-top: 14px;
-  display: grid;
-  gap: 10px;
-}
-.loginInput {
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  padding: 9px 10px;
-  background: #fefcf8;
-  color: var(--text);
-  font-size: 13px;
-}
-.loginBtn {
   width: 100%;
-  margin-top: 14px;
-  border-radius: 14px;
-  border: 0;
-  padding: 10px 12px;
-  background: linear-gradient(135deg, var(--accent), var(--accent2));
-  color: #fff;
-  font-weight: 800;
-  cursor: pointer;
+  height: 100%;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 12vw;
+  box-sizing: border-box;
+  animation: fadeInUI 1.2s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
 }
-.loginBtn:disabled {
+
+@keyframes fadeInUI {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.welcomeMsg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 24px;
+  font-weight: 300;
+  color: #5c544b;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.8s cubic-bezier(0.25, 1, 0.3, 1);
+  z-index: 5;
+  letter-spacing: 4px;
+  text-align: center;
+  line-height: 1.6;
+}
+.welcomeMsg[data-on="true"] {
+  opacity: 1;
+}
+
+.loginCardNew {
+  background-color: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(25px);
+  -webkit-backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  width: 380px;
+  padding: 45px 45px;
+  box-shadow: 0 30px 60px rgba(92, 84, 75, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+  transition: all 0.6s cubic-bezier(0.25, 1, 0.3, 1);
+  pointer-events: auto;
+}
+.loginCardNew.fadeOut {
+  opacity: 0;
+  transform: scale(0.95) translateY(-10px);
+  pointer-events: none;
+  filter: blur(10px);
+}
+
+.headerNew {
+  margin-bottom: 30px;
+}
+.titleNew {
+  font-size: 28px;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+  letter-spacing: 2px;
+  color: #4a423c;
+}
+.subtitleNew {
+  font-size: 14px;
+  color: #9e968d;
+  margin: 0;
+  line-height: 1.8;
+  letter-spacing: 0.5px;
+}
+
+.authToggle {
+  display: flex;
+  position: relative;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 20px;
+  margin-bottom: 25px;
+  padding: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+}
+.toggleBtn {
+  flex: 1;
+  text-align: center;
+  padding: 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  z-index: 2;
+  transition: color 0.3s;
+  color: #9e968d;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+}
+.toggleBtn.active {
+  color: #5c544b;
+}
+.toggleSlider {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: calc(50% - 5px);
+  height: calc(100% - 10px);
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 2px 10px rgba(92, 84, 75, 0.1);
+  transition: 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  z-index: 1;
+}
+.authToggle.registerMode .toggleSlider {
+  transform: translateX(100%);
+}
+
+.loginFormNew {
+  display: block;
+}
+.inputGroup {
+  margin-bottom: 22px;
+}
+.inputGroup label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5c544b;
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+}
+.inputGroup input {
+  width: 100%;
+  padding: 16px 20px;
+  background-color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(220, 215, 208, 0.8);
+  border-radius: 14px;
+  box-sizing: border-box;
+  font-size: 14px;
+  color: #5c544b;
+  outline: none;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  font-family: inherit;
+}
+.inputGroup input:focus {
+  background-color: rgba(255, 255, 255, 1);
+  border-color: #b59c82;
+  box-shadow: 0 0 0 4px rgba(181, 156, 130, 0.15);
+  transform: translateY(-2px);
+}
+.submitBtn {
+  width: 100%;
+  padding: 18px;
+  margin-top: 10px;
+  background-color: #b59c82;
+  color: white;
+  border: none;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  box-shadow: 0 10px 25px rgba(181, 156, 130, 0.25);
+}
+.submitBtn:hover {
+  background-color: #9e856c;
+  transform: translateY(-3px);
+  box-shadow: 0 15px 35px rgba(181, 156, 130, 0.4);
+}
+.submitBtn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
 }
-.loginError {
-  margin-top: 8px;
-  font-size: 12px;
+.loginErrorNew {
+  margin-top: 10px;
+  font-size: 12.5px;
   color: var(--danger);
 }
-.loginHint {
-  margin-top: 6px;
-  font-size: 11px;
-  color: var(--muted);
+.loginHintNew {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: #9e968d;
+}
+
+@media (max-width: 980px) {
+  .uiContainer {
+    justify-content: center;
+    padding-right: 0;
+    padding-left: 0;
+  }
+  .loginCardNew {
+    width: min(92vw, 380px);
+    padding: 36px 24px;
+  }
 }
 
 @media (max-width: 980px) {
