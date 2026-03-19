@@ -1,0 +1,29 @@
+:root {
+  color-scheme: light;
+  --bg: #0b0f14;
+  --panel: #101823;
+  --text: #e8eef6;
+  --muted: #9fb0c3;
+  --accent: #ffb000;
+  --accent2: #2bd4a7;
+  --danger: #ff5a5f;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 800px at 20% 10%, rgba(255, 176, 0, 0.18), transparent 55%),
+    radial-gradient(900px 600px at 85% 20%, rgba(43, 212, 167, 0.16), transparent 60%),
+    linear-gradient(180deg, #070a0f, var(--bg));
+  color: var(--text);
+  font-family: "Noto Serif SC", "Source Han Serif SC", "STSong", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+

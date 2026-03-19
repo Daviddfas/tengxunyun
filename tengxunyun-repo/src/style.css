@@ -1,0 +1,34 @@
+:root {
+  color-scheme: light;
+  --bg: #f5efe6;
+  --panel: #fefcf8;
+  --text: #2c2419;
+  --muted: #6b5d52;
+  --accent: #c97d4a;
+  --accent2: #b86f3f;
+  --danger: #c44d47;
+  --border: rgba(44, 36, 25, 0.14);
+  --shadow: rgba(44, 36, 25, 0.06);
+}
+
+html {
+  height: 100%;
+  background: #f5efe6;
+}
+
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #f5efe6;
+  background:
+    radial-gradient(900px 500px at 10% 0%, rgba(255, 235, 210, 0.6), transparent 50%),
+    radial-gradient(700px 400px at 90% 10%, rgba(255, 220, 190, 0.5), transparent 55%),
+    linear-gradient(180deg, #fefcf8 0%, #f8f2e8 50%, #f5efe6 100%);
+  color: var(--text);
+  font-family: "Noto Serif SC", "Source Han Serif SC", "STSong", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+

@@ -1,0 +1,6 @@
+{
+  "envId": "yayoi-5gk0e2exb5adf4b6",
+  "cloudrun": {
+    "name": "ai-chat-assistant"
+  }
+}
