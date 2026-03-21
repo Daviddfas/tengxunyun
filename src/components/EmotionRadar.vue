@@ -3,6 +3,7 @@ import { computed } from "vue";
 
 const props = defineProps({
   checkins: { type: Array, required: true },
+  overrideDimensions: { type: Array, default: null }, // 来自问卷分析的直接维度
 });
 
 function clamp(n, a, b) {
@@ -15,6 +16,13 @@ const lastN = computed(() => {
 });
 
 const score = computed(() => {
+  if (props.overrideDimensions && Array.isArray(props.overrideDimensions) && props.overrideDimensions.length > 0) {
+    return props.overrideDimensions.map((d) => ({
+      key: d.key,
+      label: d.label || d.key,
+      value: clamp(Number(d.value ?? 3), 1, 5),
+    }));
+  }
   const items = lastN.value;
   if (!items.length) return null;
 

@@ -41,7 +41,7 @@ const leaves = computed(() => {
 <template>
   <div class="box">
     <div class="title">情绪树</div>
-    <div class="sub">过去 7 天的“叶片”会长在这里（仅保存在本机浏览器）。</div>
+    <div class="sub">过去 7 天的“叶片”会长在这里（含对话与自检记录）。</div>
 
     <svg class="svg" viewBox="0 0 360 220" role="img" aria-label="情绪树可视化">
       <defs>

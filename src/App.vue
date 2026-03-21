@@ -1,10 +1,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import CheckIn from "./components/CheckIn.vue";
+import EmotionCheckIn from "./components/EmotionCheckIn.vue";
 import MoodTree from "./components/MoodTree.vue";
-import EmotionRadar from "./components/EmotionRadar.vue";
+import EmotionLineChart from "./components/EmotionLineChart.vue";
 import GroundingDrawer from "./components/GroundingDrawer.vue";
 import CompanionRitual from "./components/CompanionRitual.vue";
+import AdminDashboard from "./components/AdminDashboard.vue";
 import { loadState, saveState } from "./lib/storage.js";
 
 const persisted = loadState();
@@ -21,6 +22,8 @@ const user = ref(null);
 const loginName = ref("");
 const loginPassword = ref("");
 const loginMode = ref("login"); // login | register
+const isAdminPortal = ref(false);
+const adminOtp = ref("");
 const loginLoading = ref(false);
 const loginError = ref("");
 const loginCardFade = ref(false);
@@ -302,6 +305,34 @@ async function fetchMe() {
     const data = await res.json();
     if (data?.ok) {
       user.value = { username: data.username || "未命名" };
+      fetchCheckins();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchAdminMe() {
+  try {
+    const res = await fetch("/api/admin/me");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.ok) {
+      user.value = { username: data.username || "admin", isAdmin: true };
+      activeSide.value = "admin";
+    }
+  } catch {
+    // ignore
+  }
+}
+
+async function fetchCheckins() {
+  try {
+    const res = await fetch("/api/checkins");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.ok && Array.isArray(data.checkins) && data.checkins.length > 0) {
+      checkins.value = data.checkins;
     }
   } catch {
     // ignore
@@ -312,14 +343,25 @@ async function login() {
   const name = loginName.value.trim();
   const pw = loginPassword.value;
   if (!name || !pw || loginLoading.value) return;
+  if (isAdminPortal.value && !adminOtp.value.trim()) {
+    loginError.value = "请输入管理员动态口令";
+    return;
+  }
   loginError.value = "";
   loginLoading.value = true;
   try {
-    const endpoint = loginMode.value === "register" ? "/api/register" : "/api/login";
+    const endpoint = isAdminPortal.value
+      ? "/api/admin/login"
+      : loginMode.value === "register"
+        ? "/api/register"
+        : "/api/login";
+    const payload = isAdminPortal.value
+      ? { username: name, password: pw, otp: adminOtp.value.trim() }
+      : { username: name, password: pw };
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: name, password: pw }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const t = await res.text();
@@ -329,7 +371,13 @@ async function login() {
     // 留出时间给“吹散 + 文案”转场，避免瞬间跳到聊天页
     welcomeOn.value = true;
     await new Promise((r) => setTimeout(r, 3600));
-    user.value = { username: data.username || name };
+    if (isAdminPortal.value) {
+      user.value = { username: data.username || name, isAdmin: true };
+      activeSide.value = "admin";
+    } else {
+      user.value = { username: data.username || name };
+      fetchCheckins();
+    }
   } catch (e) {
     loginError.value = e?.message ?? String(e);
     loginCardFade.value = false;
@@ -343,14 +391,21 @@ async function login() {
 
 async function logout() {
   try {
-    await fetch("/api/logout", { method: "POST" });
+    const endpoint = user.value?.isAdmin ? "/api/admin/logout" : "/api/logout";
+    await fetch(endpoint, { method: "POST" });
   } catch {
     // ignore
   }
   user.value = null;
   loginPassword.value = "";
+  adminOtp.value = "";
   input.value = "";
   crisisMode.value = false;
+  isAdminPortal.value = false;
+  loginCardFade.value = false;
+  welcomeOn.value = false;
+  await nextTick();
+  startLoginAnim().catch(() => {});
 }
 
 async function send(overrideText) {
@@ -421,9 +476,10 @@ function clearChat() {
 
 function addCheckIn(c) {
   checkins.value.push(c);
-  const hint =
-    `我记录下了这一刻：心情 ${c.valence}/5，紧绷 ${c.arousal}/5` + (c.label ? `（${c.label}）` : "") + "。";
-  messages.value.push({ role: "assistant", content: hint + "\n\n如果你愿意，说说这背后最让你难受/最想被理解的是什么？" });
+  const hint = c.summary
+    ? c.summary + "\n\n如果你愿意，可以说说这背后最让你难受/最想被理解的是什么。"
+    : `我记录下了这一刻：心情 ${c.valence}/5，紧绷 ${c.arousal}/5` + (c.label ? `（${c.label}）` : "") + "。\n\n如果你愿意，说说这背后最让你难受/最想被理解的是什么？";
+  messages.value.push({ role: "assistant", content: hint });
   activeSide.value = "tree";
   scrollToBottom();
 }
@@ -458,6 +514,7 @@ async function makeReflectionCard() {
 
 onMounted(() => {
   scrollToBottom();
+  fetchAdminMe();
   fetchMe();
   startLoginAnim().catch(() => {});
 });
@@ -482,18 +539,36 @@ onBeforeUnmount(() => {
 
         <div class="authToggle" :class="{ registerMode: loginMode === 'register' }">
           <div class="toggleSlider"></div>
-          <button class="toggleBtn" :class="{ active: loginMode === 'login' }" type="button" @click="loginMode = 'login'">
+          <button
+            class="toggleBtn"
+            :class="{ active: loginMode === 'login' }"
+            type="button"
+            @click="
+              () => {
+                isAdminPortal = false;
+                loginMode = 'login';
+              }
+            "
+          >
             登录
           </button>
           <button
             class="toggleBtn"
             :class="{ active: loginMode === 'register' }"
             type="button"
-            @click="loginMode = 'register'"
+            @click="
+              () => {
+                isAdminPortal = false;
+                loginMode = 'register';
+              }
+            "
           >
             注册
           </button>
         </div>
+        <button class="adminSwitch" type="button" @click="isAdminPortal = !isAdminPortal">
+          {{ isAdminPortal ? "返回普通登录" : "管理员入口" }}
+        </button>
 
         <form
           class="loginFormNew"
@@ -506,16 +581,34 @@ onBeforeUnmount(() => {
           "
         >
           <div class="inputGroup">
-            <label>你的称呼</label>
-            <input v-model="loginName" type="text" placeholder="例如：旅人 / 星期八" required autocomplete="off" />
+            <label>{{ isAdminPortal ? "管理员账号" : "你的称呼" }}</label>
+            <input
+              v-model="loginName"
+              type="text"
+              :placeholder="isAdminPortal ? 'rosent' : '例如：旅人 / 星期八'"
+              required
+              autocomplete="off"
+            />
           </div>
           <div class="inputGroup">
-            <label>你的密码</label>
-            <input v-model="loginPassword" type="password" placeholder="心底的密码" required />
+            <label>{{ isAdminPortal ? "管理员密码" : "你的密码" }}</label>
+            <input v-model="loginPassword" type="password" :placeholder="isAdminPortal ? '输入管理员密码' : '心底的密码'" required />
+          </div>
+          <div v-if="isAdminPortal" class="inputGroup">
+            <label>动态口令</label>
+            <input v-model="adminOtp" type="text" placeholder="6位动态口令" required />
           </div>
 
           <button class="submitBtn" type="submit" :disabled="loginLoading">
-            {{ loginLoading ? "正在吹散…" : loginMode === "login" ? "登录并吹散" : "注册并吹散" }}
+            {{
+              loginLoading
+                ? "正在吹散…"
+                : isAdminPortal
+                  ? "管理员登录"
+                  : loginMode === "login"
+                    ? "登录并吹散"
+                    : "注册并吹散"
+            }}
           </button>
 
           <div v-if="loginError" class="loginErrorNew">{{ loginError }}</div>
@@ -523,6 +616,23 @@ onBeforeUnmount(() => {
         </form>
       </div>
     </div>
+  </div>
+
+  <div v-else-if="user?.isAdmin" class="adminPage">
+    <div class="adminTop">
+      <div class="brand">
+        <div class="badge">管</div>
+        <div class="t">
+          <div class="name">后台管理系统</div>
+          <div class="sub">账号聊天数据与风险分析看板</div>
+        </div>
+      </div>
+      <div class="me">
+        <span class="meName">{{ user.username }}</span>
+        <button class="ghost smallBtn" @click="logout">退出</button>
+      </div>
+    </div>
+    <AdminDashboard />
   </div>
 
   <div v-else class="frame">
@@ -543,13 +653,14 @@ onBeforeUnmount(() => {
         <button class="navBtn" :data-on="activeSide === 'journal'" @click="activeSide = 'journal'">树洞日记</button>
         <button class="navBtn" :data-on="activeSide === 'reflect'" @click="activeSide = 'reflect'">回声卡片</button>
         <button class="navBtn" :data-on="activeSide === 'companion'" @click="activeSide = 'companion'">陪伴小馆</button>
+        <button v-if="user?.isAdmin" class="navBtn" :data-on="activeSide === 'admin'" @click="activeSide = 'admin'">后台管理</button>
       </nav>
 
       <div class="sideBody">
-        <CheckIn @checkin="addCheckIn" />
+        <EmotionCheckIn @checkin="addCheckIn" />
         <div v-if="activeSide === 'tree'" class="stack">
           <MoodTree :checkins="checkins" />
-          <EmotionRadar :checkins="checkins" />
+          <EmotionLineChart />
         </div>
 
         <div v-else-if="activeSide === 'journal'" class="stack">
@@ -576,7 +687,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-else class="stack">
-          <CompanionRitual :prefs="prefs" :messages="messages" />
+          <AdminDashboard v-if="activeSide === 'admin' && user?.isAdmin" />
+          <CompanionRitual v-else :prefs="prefs" :messages="messages" />
         </div>
 
         <div class="foot">
@@ -667,6 +779,25 @@ onBeforeUnmount(() => {
   max-width: 1220px;
   margin: 0 auto;
   padding: 22px 18px 30px;
+}
+
+.adminPage {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 22px 18px 30px;
+}
+
+.adminTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #fefcf8;
+  box-shadow: 0 8px 32px var(--shadow);
+  padding: 14px;
+  margin-bottom: 12px;
 }
 
 .side {
@@ -1214,6 +1345,17 @@ onBeforeUnmount(() => {
   margin-top: 8px;
   font-size: 11.5px;
   color: #9e968d;
+}
+.adminSwitch {
+  width: 100%;
+  margin-bottom: 16px;
+  border: 1px solid rgba(220, 215, 208, 0.8);
+  background: rgba(255, 255, 255, 0.55);
+  color: #5c544b;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 @media (max-width: 980px) {
